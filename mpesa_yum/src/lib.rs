@@ -1,11 +1,12 @@
 use anyhow::{Ok, Result};
+use sha2::{Digest, Sha256};
 use sqlite::{Connection, Value};
 
 pub struct Yum {
     pub done_populating: bool,
     pub location: String,
     connection: Connection,
-    pub percentage: f32
+    pub percentage: u64
 }
 
 impl Yum {
@@ -27,7 +28,16 @@ impl Yum {
         Ok(result)
     }
 
-    pub fn start_filling()->Result<()>{
+    pub fn start_filling(&mut self)->Result<()>{
+        for num in 254000000000 as u64..=254999999999 {
+            let mut hasher = Sha256::new();
+            hasher.update(num.to_string());
+            let num_hash: String = format!("{:x}",hasher.finalize());
+
+            self.insert(&num_hash, &num.to_string())?;
+
+            self.percentage = ((254999999999 - num) / (254999999999 - 254000000000)) * 100 ;
+        }
         Ok(())
     }
 }
@@ -45,7 +55,7 @@ pub fn init(location: Option<&str>) -> Result<Yum> {
         location,
         done_populating: false,
         connection,
-        percentage: 0.0
+        percentage: 0
     };
 
     let create_table = "CREATE TABLE IF NOT EXISTS nums (hash TEXT PRIMARY KEY, no INTEGER)";
@@ -74,14 +84,18 @@ mod tests {
 
     #[test]
     fn insert_and_check() {
-        let num = "254712345689";
+        let num = (254712345689 as u64).to_string();
         let mut yum = init(None).unwrap();
         let mut hasher = Sha256::new();
-        hasher.update(num);
+        hasher.update(&num);
         let num_hash: String = format!("{:x}",hasher.finalize());
+        assert_eq!(num_hash, "1e450f13cce411f78315ba2ed9bfc2e2d43b2234491b0713eeeeb6594c4df364");
+
         yum.insert(&num_hash, &num).unwrap();
         let number_result: String = yum.get(&num_hash).unwrap();
 
-        assert_eq!(number_result, num)
+        assert_eq!(num, number_result);
+
+        assert_eq!(number_result, "254712345689")
     }
 }
