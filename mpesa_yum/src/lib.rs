@@ -1,12 +1,26 @@
 use anyhow::{Ok, Result};
 use sha2::{Digest, Sha256};
-use sqlite::{Connection, Value};
+use sqlite::{ConnectionThreadSafe, Value};
 
 pub struct Yum {
     pub done_populating: bool,
     pub location: String,
-    connection: Connection,
+    connection: ConnectionThreadSafe,
     pub percentage: u64
+}
+
+#[derive(Copy, Clone)]
+pub struct YumMutUnsafePointer {
+    pub ptr: *mut Yum
+}
+
+unsafe impl Send for YumMutUnsafePointer{}
+unsafe impl Sync for YumMutUnsafePointer{}
+
+impl YumMutUnsafePointer {
+    pub fn get(&self)-> &mut Yum{
+        unsafe {&mut *self.ptr}
+    }
 }
 
 impl Yum {
@@ -29,7 +43,21 @@ impl Yum {
     }
 
     pub fn start_filling(&mut self)->Result<()>{
-        for num in 254000000000 as u64..=254999999999 {
+        //check if all fields filled
+        let result: i64 = unsafe {
+            // to break borrow checker to allow immutable borrow on a mutable borrow
+            let myself: *mut Yum = self;
+            let myself: &mut Yum = &mut *myself;
+            let mut statement = myself.connection.prepare("SELECT COUNT(*) FOM nums")?;
+            statement.next()?;
+            statement.read(0)?
+        };
+
+        let left: u64 = 254999999999 - result as u64;
+
+
+        for num in (254000000000 + left) as u64..=254999999999 {
+            println!("DOING {num}");
             let mut hasher = Sha256::new();
             hasher.update(num.to_string());
             let num_hash: String = format!("{:x}",hasher.finalize());
@@ -49,7 +77,7 @@ pub fn init(location: Option<&str>) -> Result<Yum> {
         ":memory:".to_string()
     };
 
-    let connection = sqlite::open(location.clone())?;
+    let connection = sqlite::Connection::open_thread_safe(location.clone())?;
 
     let yum = Yum {
         location,
