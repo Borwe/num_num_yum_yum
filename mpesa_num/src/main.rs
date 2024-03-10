@@ -13,7 +13,10 @@ async fn get_hash(info: web::Path<String>, data: web::Data<YumMutUnsafePointer>)
     let hash = info.into_inner();
     println!("GOT HASH {hash}");
     let result = match data.get().get(&hash) {
-        Ok(result) => HttpResponse::Ok().body(result),
+        Ok(result) => match result {
+            Some(result) => HttpResponse::Ok().body(result),
+            None => HttpResponse::NotFound().body("has not yet available, check /status end point for progress")
+        } 
         _ => HttpResponse::NotFound().body("has not yet available, check /status end point for progress")
     };
     result
@@ -34,19 +37,17 @@ async fn main()-> Result<()> {
         (&mut *ptr, YumMutUnsafePointer{ptr})
     };
 
-    let server = HttpServer::new( move || {
-        App::new()
-            .app_data(web::Data::new(data))
-            .service(get_status)
-            .service(get_hash)
-    }).workers(2).bind(("0.0.0.0", 42069)).unwrap();
-
-    let _ =futures::join!(
+    let _ = futures::join!(
         tokio::spawn(async move {
             fill_db(mpesa_clone).unwrap()
         }),
         async {
-            let _ = server.run().await;
+            let _ = HttpServer::new( move || {
+                App::new()
+                    .app_data(web::Data::new(data))
+                    .service(get_status)
+                    .service(get_hash)
+            }).workers(2).bind(("0.0.0.0", 42069)).unwrap().run().await;
         }
     );
 
